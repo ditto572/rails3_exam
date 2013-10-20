@@ -1,0 +1,65 @@
+class Member < ActiveRecord::Base
+  include EmailAddressChecker
+
+  has_one :image, class_name: "MemberImage", dependent: :destroy
+  has_many :entries, dependent: :destroy
+
+  accepts_nested_attributes_for :image, allow_destroy: true
+
+  validates :number, presence: true,
+    numericality: { only_integer: true,
+       greater_than: 0, less_than: 100, allow_blank: true },
+    uniqueness: true
+  validates :name, presence: true,
+    format: { with: /\A[A-Za-z]\w*\z/, allow_blank: true,
+              message: :invalid_member_name },
+    length: { minimum: 2, maximum: 20, allow_blank: true },
+    uniqueness: { case_sensitive: false }
+  validates :full_name, length: { maximum: 20 }
+  validate :check_email
+  validates :password, presence: { on: :create },
+    confirmation: { allow_blank: true }
+
+  attr_accessor :password, :password_confirmation
+
+  ACCESSIBLE_ATTRS = [ :name, :full_name, :gender, :birthday,
+    :email, :password, :password_confirmation, :image_attributes ]
+  attr_accessible *ACCESSIBLE_ATTRS
+  attr_accessible *(ACCESSIBLE_ATTRS + [:number, :administrator]),
+    as: :admin
+
+  def password=(val)
+    if val.present?
+      self.hashed_password = BCrypt::Password.create(val)
+    end
+    @password = val
+  end
+
+  private
+  def check_email
+    if email.present?
+      errors.add(:email, :invalid) unless well_formed_as_email_address(email)
+    end
+  end
+
+  class << self
+    def search(query)
+      rel = order("number")
+      if query.present?
+        rel = rel.where("name LIKE ? OR full_name LIKE ?",
+                "%#{query}%", "%#{query}%")
+      end
+      rel
+    end
+
+    def authenticate(name, password)
+      member = find_by_name(name)
+      if member && member.hashed_password.present? &&
+         BCrypt::Password.new(member.hashed_password) == password
+        member
+      else
+        nil
+      end
+    end
+  end
+end
